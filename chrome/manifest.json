@@ -4,10 +4,8 @@
   "version": "1.0.0",
   "description": "Spoof your geolocation for all websites with search, presets, and one-click toggle.",
   "permissions": [
-    "storage"
-  ],
-  "host_permissions": [
-    "<all_urls>"
+    "storage",
+    "activeTab"
   ],
   "background": {
     "service_worker": "background.js"

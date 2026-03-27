@@ -51,7 +51,7 @@ function renderPresets() {
   }
 
   presetsSection.classList.remove("hidden");
-  presetsList.innerHTML = "";
+  presetsList.replaceChildren();
 
   currentState.presets.forEach((preset, index) => {
     const item = document.createElement("div");
@@ -62,9 +62,13 @@ function renderPresets() {
     info.addEventListener("click", () =>
       send({ type: "setLocation", location: preset }).then(applyState)
     );
-    info.innerHTML =
-      `<div class="preset-name">${preset.name}</div>` +
-      `<div class="preset-coords">${preset.lat.toFixed(4)}, ${preset.lng.toFixed(4)}</div>`;
+    const nameEl = document.createElement("div");
+    nameEl.className = "preset-name";
+    nameEl.textContent = preset.name;
+    const coordsEl = document.createElement("div");
+    coordsEl.className = "preset-coords";
+    coordsEl.textContent = `${preset.lat.toFixed(4)}, ${preset.lng.toFixed(4)}`;
+    info.append(nameEl, coordsEl);
 
     const removeBtn = document.createElement("button");
     removeBtn.className = "preset-remove";
@@ -106,8 +110,7 @@ async function searchNominatim(query) {
     );
     showResults(await res.json());
   } catch {
-    searchResults.innerHTML = '<div class="search-no-results">Search failed</div>';
-    searchResults.classList.remove("hidden");
+    showMessage("Search failed");
   }
 }
 
@@ -125,19 +128,30 @@ async function reverseGeocode(coords) {
   }
 }
 
+function showMessage(text) {
+  searchResults.replaceChildren();
+  const msg = document.createElement("div");
+  msg.className = "search-no-results";
+  msg.textContent = text;
+  searchResults.appendChild(msg);
+  searchResults.classList.remove("hidden");
+}
+
 function showResults(results) {
-  searchResults.innerHTML = "";
+  searchResults.replaceChildren();
 
   if (!results.length) {
-    searchResults.innerHTML = '<div class="search-no-results">No results found</div>';
-    searchResults.classList.remove("hidden");
+    showMessage("No results found");
     return;
   }
 
   for (const result of results) {
     const item = document.createElement("div");
     item.className = "search-result-item";
-    item.innerHTML = `<div class="search-result-name">${result.display_name}</div>`;
+    const name = document.createElement("div");
+    name.className = "search-result-name";
+    name.textContent = result.display_name;
+    item.appendChild(name);
     item.addEventListener("click", () => {
       send({
         type: "setLocation",

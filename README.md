@@ -4,6 +4,8 @@ A browser extension that spoofs your geolocation for websites. Works with Google
 
 Available for **Firefox** (Manifest V2) and **Chrome** (Manifest V3).
 
+![](/screenshot.jpg)
+
 ## Features
 
 - **Spoof geolocation** on any website by overriding `navigator.geolocation`
