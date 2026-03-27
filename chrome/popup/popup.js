@@ -10,8 +10,13 @@ const presetsSection = document.getElementById("presets-section");
 const presetsList = document.getElementById("presets-list");
 const addPresetBtn = document.getElementById("add-preset-btn");
 const addPresetEl = document.getElementById("add-preset");
+const siteSection = document.getElementById("site-section");
+const siteDomainEl = document.getElementById("site-domain");
+const siteToggleBtn = document.getElementById("site-toggle-btn");
+const siteReloadEl = document.getElementById("site-reload");
 
 let currentState = null;
+let currentOrigin = null;
 let searchTimeout = null;
 let lastRequestTime = 0;
 
@@ -41,7 +46,23 @@ function render() {
     addPresetEl.classList.add("hidden");
   }
 
+  renderSiteSection();
   renderPresets();
+}
+
+function renderSiteSection() {
+  if (!currentOrigin || !currentOrigin.startsWith("http")) {
+    siteSection.classList.add("hidden");
+    return;
+  }
+
+  siteSection.classList.remove("hidden");
+  siteDomainEl.textContent = new URL(currentOrigin).hostname;
+
+  const domainEnabled = currentState.enabledDomains?.includes(currentOrigin);
+  siteToggleBtn.textContent = domainEnabled ? "Disable on this site" : "Enable on this site";
+  siteToggleBtn.classList.toggle("btn-disable", domainEnabled);
+  siteToggleBtn.classList.toggle("btn-enable", !domainEnabled);
 }
 
 function renderPresets() {
@@ -60,7 +81,10 @@ function renderPresets() {
     const info = document.createElement("div");
     info.className = "preset-info";
     info.addEventListener("click", () =>
-      send({ type: "setLocation", location: preset }).then(applyState)
+      send({ type: "setLocation", location: preset }).then((state) => {
+        applyState(state);
+        reloadCurrentTab();
+      })
     );
     const nameEl = document.createElement("div");
     nameEl.className = "preset-name";
@@ -156,7 +180,10 @@ function showResults(results) {
       send({
         type: "setLocation",
         location: { lat: parseFloat(result.lat), lng: parseFloat(result.lon), name: result.display_name },
-      }).then(applyState);
+      }).then((state) => {
+        applyState(state);
+        reloadCurrentTab();
+      });
       searchInput.value = "";
       searchResults.classList.add("hidden");
     });
@@ -165,11 +192,90 @@ function showResults(results) {
   searchResults.classList.remove("hidden");
 }
 
+// --- Initialization ---
+
+async function init() {
+  const tabs = await api.tabs.query({ active: true, currentWindow: true });
+  if (tabs[0]?.url) {
+    try {
+      currentOrigin = new URL(tabs[0].url).origin;
+    } catch {
+      currentOrigin = null;
+    }
+  }
+  const state = await send({ type: "getState" });
+  applyState(state);
+}
+
+init();
+
 // --- Event listeners ---
 
-send({ type: "getState" }).then(applyState);
+toggleEl.addEventListener("change", async () => {
+  const wasEnabled = currentState.enabled;
+  const state = await send({ type: "toggle" });
+  applyState(state);
+  // Reload affected tabs when disabling so the spoofed location is cleared
+  if (wasEnabled && !state.enabled) {
+    reloadAffectedTabs();
+  }
+});
 
-toggleEl.addEventListener("change", () => send({ type: "toggle" }).then(applyState));
+function reloadCurrentTab() {
+  if (!currentOrigin || !currentOrigin.startsWith("http")) return;
+  api.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+    if (tabs[0]?.id) api.tabs.reload(tabs[0].id);
+  });
+}
+
+async function reloadAffectedTabs() {
+  const tabs = await api.tabs.query({});
+  for (const tab of tabs) {
+    if (!tab.url) continue;
+    try {
+      const origin = new URL(tab.url).origin;
+      // Reload tabs that had spoofing active (were in enabledDomains before)
+      // After toggle off, all domains are affected; after domain disable, just that one
+      if (currentState.enabledDomains?.includes(origin) || origin === currentOrigin) {
+        api.tabs.reload(tab.id);
+      }
+    } catch {}
+  }
+}
+
+siteToggleBtn.addEventListener("click", async () => {
+  if (!currentOrigin) return;
+
+  const domainEnabled = currentState.enabledDomains?.includes(currentOrigin);
+
+  if (domainEnabled) {
+    const state = await send({ type: "disableDomain", origin: currentOrigin });
+    siteReloadEl.classList.add("hidden");
+    applyState(state);
+    // Reload tabs on this domain so the spoofed location is cleared
+    const tabs = await api.tabs.query({});
+    for (const tab of tabs) {
+      try {
+        if (tab.url && new URL(tab.url).origin === currentOrigin) api.tabs.reload(tab.id);
+      } catch {}
+    }
+  } else {
+    // Must request permission in the click handler (user gesture)
+    const granted = await api.permissions.request({ origins: [currentOrigin + "/*"] });
+    if (!granted) return;
+    const state = await send({ type: "enableDomain", origin: currentOrigin });
+    applyState(state);
+    // Reload tabs on this domain so the content scripts take effect
+    if (state.enabled) {
+      const tabs = await api.tabs.query({});
+      for (const tab of tabs) {
+        try {
+          if (tab.url && new URL(tab.url).origin === currentOrigin) api.tabs.reload(tab.id);
+        } catch {}
+      }
+    }
+  }
+});
 
 searchInput.addEventListener("input", () => {
   clearTimeout(searchTimeout);
