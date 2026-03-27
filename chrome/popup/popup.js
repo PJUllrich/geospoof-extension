@@ -20,7 +20,7 @@ let currentOrigin = null;
 let searchTimeout = null;
 let lastRequestTime = 0;
 
-// --- State & rendering ---
+// --- Helpers ---
 
 function send(msg) {
   return api.runtime.sendMessage(msg);
@@ -30,6 +30,32 @@ function applyState(state) {
   currentState = state;
   render();
 }
+
+function reloadCurrentTab() {
+  if (!currentOrigin?.startsWith("http")) return;
+  api.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+    if (tabs[0]?.id) api.tabs.reload(tabs[0].id);
+  });
+}
+
+async function reloadTabsByOrigin(origin) {
+  for (const tab of await api.tabs.query({})) {
+    try {
+      if (tab.url && new URL(tab.url).origin === origin) api.tabs.reload(tab.id);
+    } catch {}
+  }
+}
+
+async function reloadEnabledTabs() {
+  for (const tab of await api.tabs.query({})) {
+    try {
+      const origin = new URL(tab.url).origin;
+      if (currentState.enabledDomains?.includes(origin)) api.tabs.reload(tab.id);
+    } catch {}
+  }
+}
+
+// --- Rendering ---
 
 function render() {
   if (!currentState) return;
@@ -51,7 +77,7 @@ function render() {
 }
 
 function renderSiteSection() {
-  if (!currentOrigin || !currentOrigin.startsWith("http")) {
+  if (!currentOrigin?.startsWith("http")) {
     siteSection.classList.add("hidden");
     return;
   }
@@ -59,10 +85,10 @@ function renderSiteSection() {
   siteSection.classList.remove("hidden");
   siteDomainEl.textContent = new URL(currentOrigin).hostname;
 
-  const domainEnabled = currentState.enabledDomains?.includes(currentOrigin);
-  siteToggleBtn.textContent = domainEnabled ? "Disable on this site" : "Enable on this site";
-  siteToggleBtn.classList.toggle("btn-disable", domainEnabled);
-  siteToggleBtn.classList.toggle("btn-enable", !domainEnabled);
+  const enabled = currentState.enabledDomains?.includes(currentOrigin);
+  siteToggleBtn.textContent = enabled ? "Disable on this site" : "Enable on this site";
+  siteToggleBtn.classList.toggle("btn-disable", enabled);
+  siteToggleBtn.classList.toggle("btn-enable", !enabled);
 }
 
 function renderPresets() {
@@ -80,15 +106,12 @@ function renderPresets() {
 
     const info = document.createElement("div");
     info.className = "preset-info";
-    info.addEventListener("click", () =>
-      send({ type: "setLocation", location: preset }).then((state) => {
-        applyState(state);
-        reloadCurrentTab();
-      })
-    );
+    info.addEventListener("click", () => setLocation(preset));
+
     const nameEl = document.createElement("div");
     nameEl.className = "preset-name";
     nameEl.textContent = preset.name;
+
     const coordsEl = document.createElement("div");
     coordsEl.className = "preset-coords";
     coordsEl.textContent = `${preset.lat.toFixed(4)}, ${preset.lng.toFixed(4)}`;
@@ -110,7 +133,16 @@ function renderPresets() {
   });
 }
 
-// --- Nominatim helpers ---
+// --- Location actions ---
+
+function setLocation(location) {
+  send({ type: "setLocation", location }).then((state) => {
+    applyState(state);
+    reloadCurrentTab();
+  });
+}
+
+// --- Nominatim search ---
 
 async function rateLimitedFetch(url) {
   const wait = Math.max(0, 1000 - (Date.now() - lastRequestTime));
@@ -145,12 +177,13 @@ async function reverseGeocode(coords) {
       `https://nominatim.openstreetmap.org/reverse?lat=${coords.lat}&lon=${coords.lng}&format=json`
     );
     const result = await res.json();
-    const name = result.display_name || fallback[0].display_name;
-    showResults([{ lat: String(coords.lat), lon: String(coords.lng), display_name: name }]);
+    showResults([{ lat: String(coords.lat), lon: String(coords.lng), display_name: result.display_name || fallback[0].display_name }]);
   } catch {
     showResults(fallback);
   }
 }
+
+// --- Search results display ---
 
 function showMessage(text) {
   searchResults.replaceChildren();
@@ -159,6 +192,45 @@ function showMessage(text) {
   msg.textContent = text;
   searchResults.appendChild(msg);
   searchResults.classList.remove("hidden");
+}
+
+function formatResult(result) {
+  const addr = result.address || {};
+  const type = result.type || "";
+  const category = result.class || "";
+
+  let primary = addr.city || addr.town || addr.village || addr.hamlet || addr.municipality || "";
+  let secondary = "";
+
+  if (category === "boundary" || type === "administrative") {
+    if (addr.state && !addr.city && !addr.town && !addr.village) {
+      primary = addr.state;
+      secondary = addr.country || "";
+    } else if (addr.country && !addr.state && !addr.city) {
+      primary = addr.country;
+    }
+  }
+
+  if (!primary) {
+    primary = result.name || result.display_name.split(",")[0];
+  }
+
+  if (!secondary) {
+    const parts = [];
+    if (addr.state && addr.state !== primary) parts.push(addr.state);
+    if (addr.country && addr.country !== primary) parts.push(addr.country);
+    secondary = parts.join(", ");
+  }
+
+  let label = "";
+  if (type === "city" || addr.city) label = "City";
+  else if (type === "town" || addr.town) label = "Town";
+  else if (type === "village" || addr.village) label = "Village";
+  else if (type === "state" || type === "state_district") label = "State";
+  else if (type === "country") label = "Country";
+  else if (type === "administrative") label = addr.state && !addr.city ? "State" : "Region";
+
+  return { primary, secondary, label };
 }
 
 function showResults(results) {
@@ -172,21 +244,34 @@ function showResults(results) {
   for (const result of results) {
     const item = document.createElement("div");
     item.className = "search-result-item";
-    const name = document.createElement("div");
-    name.className = "search-result-name";
-    name.textContent = result.display_name;
-    item.appendChild(name);
+    const formatted = formatResult(result);
+
+    const nameRow = document.createElement("div");
+    nameRow.className = "search-result-name";
+    nameRow.textContent = formatted.primary;
+
+    if (formatted.label) {
+      const badge = document.createElement("span");
+      badge.className = "search-result-badge";
+      badge.textContent = formatted.label;
+      nameRow.appendChild(badge);
+    }
+
+    item.appendChild(nameRow);
+
+    if (formatted.secondary) {
+      const sub = document.createElement("div");
+      sub.className = "search-result-sub";
+      sub.textContent = formatted.secondary;
+      item.appendChild(sub);
+    }
+
     item.addEventListener("click", () => {
-      send({
-        type: "setLocation",
-        location: { lat: parseFloat(result.lat), lng: parseFloat(result.lon), name: result.display_name },
-      }).then((state) => {
-        applyState(state);
-        reloadCurrentTab();
-      });
+      setLocation({ lat: parseFloat(result.lat), lng: parseFloat(result.lon), name: result.display_name });
       searchInput.value = "";
       searchResults.classList.add("hidden");
     });
+
     searchResults.appendChild(item);
   }
   searchResults.classList.remove("hidden");
@@ -197,14 +282,9 @@ function showResults(results) {
 async function init() {
   const tabs = await api.tabs.query({ active: true, currentWindow: true });
   if (tabs[0]?.url) {
-    try {
-      currentOrigin = new URL(tabs[0].url).origin;
-    } catch {
-      currentOrigin = null;
-    }
+    try { currentOrigin = new URL(tabs[0].url).origin; } catch {}
   }
-  const state = await send({ type: "getState" });
-  applyState(state);
+  applyState(await send({ type: "getState" }));
 }
 
 init();
@@ -213,67 +293,22 @@ init();
 
 toggleEl.addEventListener("change", async () => {
   const wasEnabled = currentState.enabled;
-  const state = await send({ type: "toggle" });
-  applyState(state);
-  // Reload affected tabs when disabling so the spoofed location is cleared
-  if (wasEnabled && !state.enabled) {
-    reloadAffectedTabs();
-  }
+  applyState(await send({ type: "toggle" }));
+  if (wasEnabled && !currentState.enabled) reloadEnabledTabs();
 });
-
-function reloadCurrentTab() {
-  if (!currentOrigin || !currentOrigin.startsWith("http")) return;
-  api.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
-    if (tabs[0]?.id) api.tabs.reload(tabs[0].id);
-  });
-}
-
-async function reloadAffectedTabs() {
-  const tabs = await api.tabs.query({});
-  for (const tab of tabs) {
-    if (!tab.url) continue;
-    try {
-      const origin = new URL(tab.url).origin;
-      // Reload tabs that had spoofing active (were in enabledDomains before)
-      // After toggle off, all domains are affected; after domain disable, just that one
-      if (currentState.enabledDomains?.includes(origin) || origin === currentOrigin) {
-        api.tabs.reload(tab.id);
-      }
-    } catch {}
-  }
-}
 
 siteToggleBtn.addEventListener("click", async () => {
   if (!currentOrigin) return;
 
-  const domainEnabled = currentState.enabledDomains?.includes(currentOrigin);
-
-  if (domainEnabled) {
-    const state = await send({ type: "disableDomain", origin: currentOrigin });
+  if (currentState.enabledDomains?.includes(currentOrigin)) {
+    applyState(await send({ type: "disableDomain", origin: currentOrigin }));
     siteReloadEl.classList.add("hidden");
-    applyState(state);
-    // Reload tabs on this domain so the spoofed location is cleared
-    const tabs = await api.tabs.query({});
-    for (const tab of tabs) {
-      try {
-        if (tab.url && new URL(tab.url).origin === currentOrigin) api.tabs.reload(tab.id);
-      } catch {}
-    }
+    reloadTabsByOrigin(currentOrigin);
   } else {
-    // Must request permission in the click handler (user gesture)
     const granted = await api.permissions.request({ origins: [currentOrigin + "/*"] });
     if (!granted) return;
-    const state = await send({ type: "enableDomain", origin: currentOrigin });
-    applyState(state);
-    // Reload tabs on this domain so the content scripts take effect
-    if (state.enabled) {
-      const tabs = await api.tabs.query({});
-      for (const tab of tabs) {
-        try {
-          if (tab.url && new URL(tab.url).origin === currentOrigin) api.tabs.reload(tab.id);
-        } catch {}
-      }
-    }
+    applyState(await send({ type: "enableDomain", origin: currentOrigin }));
+    if (currentState.enabled) reloadTabsByOrigin(currentOrigin);
   }
 });
 

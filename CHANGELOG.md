@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.3
+
+- Improve search results: show type badges (City, State, Country), cleaner names without county clutter
+- Enable global toggle automatically when enabling a site
+- Default to globally enabled on fresh install
+- Auto-reload tabs when enabling a site (not just when disabling)
+- Style improvements: colored enable/disable buttons (orange/red), outlined "Save to presets" button
+- Code cleanup and refactoring
+
 ## 1.0.2
 
 - Add `x-geo` header injection for Google domains — Google Search and Maps now reflect spoofed locations immediately without caching issues

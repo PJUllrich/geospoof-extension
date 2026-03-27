@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GeoSpoof",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Spoof your geolocation for all websites with search, presets, and one-click toggle.",
   "permissions": [
     "storage",
