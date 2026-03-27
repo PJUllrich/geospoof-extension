@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="header">
+      <span class="title">GeoSpoof</span>
+      <label class="toggle">
+        <input type="checkbox" id="toggle" />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div id="current-location" class="current-location hidden">
+      <div class="current-label">Current location</div>
+      <div id="current-name" class="current-name"></div>
+      <div id="current-coords" class="current-coords"></div>
+    </div>
+
+    <div class="search-section">
+      <div class="search-wrapper">
+        <input
+          type="text"
+          id="search-input"
+          placeholder="Search or paste lat, lng..."
+          autocomplete="off"
+        />
+        <div id="search-results" class="search-results hidden"></div>
+      </div>
+    </div>
+
+    <div id="presets-section" class="presets-section hidden">
+      <div class="presets-header">
+        <span class="presets-title">Presets</span>
+      </div>
+      <div id="presets-list" class="presets-list"></div>
+    </div>
+
+    <div id="add-preset" class="add-preset hidden">
+      <button id="add-preset-btn" class="btn btn-small">Save to presets</button>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,41 @@
+{
+  "manifest_version": 2,
+  "name": "GeoSpoof",
+  "version": "1.0.0",
+  "description": "Spoof your geolocation for all websites with search, presets, and one-click toggle.",
+  "homepage_url": "https://github.com/PJUllrich/firefox-location-simulator",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "geospoof@peterullrich.com",
+      "strict_min_version": "91.0",
+      "data_collection_permissions": ["none"]
+    }
+  },
+  "permissions": [
+    "storage",
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "browser_action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-gray-16.svg",
+      "32": "icons/icon-gray-32.svg",
+      "48": "icons/icon-gray-48.svg"
+    }
+  },
+  "icons": {
+    "48": "icons/icon-gray-48.svg",
+    "96": "icons/icon-gray-96.svg"
+  }
+}
